@@ -47,7 +47,7 @@ const TaskCard = ({ task, onEdit, onDelete, onToggle }) => {
           {/* action buttons — only show on hover */}
           <div className="flex items-center gap-0.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
             {/* pomodoro — the whole reason i built this feature tbh */}
-            <PomodoroTimer taskId={task.id} taskTitle={task.title} />
+            <PomodoroTimer />
 
             <button
               onClick={() => onEdit(task)}

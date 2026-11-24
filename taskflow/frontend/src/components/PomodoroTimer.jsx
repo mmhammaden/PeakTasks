@@ -1,9 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 
-// 25 min work, 5 min break — classic pomodoro
-// TODO: improrve this later — let users set custom durations from settings
-const WORK_MINS = 25;
-const BREAK_MINS = 5;
+const WORK_MS = 25 * 60 * 1000;
+const BREAK_MS = 5 * 60 * 1000;
 
 const fmt = (secs) => {
   const m = String(Math.floor(secs / 60)).padStart(2, '0');
@@ -11,67 +9,79 @@ const fmt = (secs) => {
   return `${m}:${s}`;
 };
 
-const PomodoroTimer = ({ taskId, taskTitle }) => {
+const PomodoroTimer = () => {
   const [open, setOpen] = useState(false);
   const [running, setRunning] = useState(false);
   const [isBreak, setIsBreak] = useState(false);
-  const [secs, setSecs] = useState(WORK_MINS * 60);
+  const [secs, setSecs] = useState(WORK_MS / 1000);
   const [sessions, setSessions] = useState(0);
-  const intervalRef = useRef(null);
-
-  // stop timer when card unmounts — learned this the hard way lol
-  useEffect(() => () => clearInterval(intervalRef.current), []);
+  const deadline = useRef(null);
+  const remaining = useRef(WORK_MS);
 
   useEffect(() => {
     if (!running) return;
 
-    intervalRef.current = setInterval(() => {
-      setSecs((prev) => {
-        if (prev <= 1) {
-          clearInterval(intervalRef.current);
-          setRunning(false);
+    const tick = () => {
+      if (deadline.current === null) return;
+      const timeLeft = deadline.current - Date.now();
+      if (timeLeft > 0) {
+        setSecs(Math.ceil(timeLeft / 1000));
+        return;
+      }
 
-          if (!isBreak) {
-            setSessions((s) => s + 1);
-            console.log(`🍅 Pomodoro done for "${taskTitle}" — go touch some grass`);
-            // notify if browser allows it
-            if (Notification.permission === 'granted') {
-              new Notification('PeakTasks 🍅', { body: `Nice work! Take a 5 min break.` });
-            }
-            setIsBreak(true);
-            return BREAK_MINS * 60;
-          } else {
-            console.log('☕ Break over. Back to the grind, champ.');
-            setIsBreak(false);
-            return WORK_MINS * 60;
+      deadline.current = null;
+      remaining.current = isBreak ? WORK_MS : BREAK_MS;
+      setSecs(remaining.current / 1000);
+      setRunning(false);
+      setIsBreak(!isBreak);
+
+      if (!isBreak) {
+        setSessions((count) => count + 1);
+        if (globalThis.Notification?.permission === 'granted') {
+          try {
+            new Notification('PeakTasks 🍅', { body: 'Nice work! Take a 5 min break.' });
+          } catch {
+            // Some browsers expose notifications but cannot display them from a page.
           }
         }
-        return prev - 1;
-      });
-    }, 1000);
+      }
+    };
 
-    return () => clearInterval(intervalRef.current);
-  }, [running, isBreak, taskTitle]);
+    const interval = setInterval(tick, 250);
+    document.addEventListener('visibilitychange', tick);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', tick);
+    };
+  }, [running, isBreak]);
 
   const toggle = (e) => {
     e.stopPropagation();
-    if (!running && Notification.permission === 'default') {
-      Notification.requestPermission();
+    if (running) {
+      remaining.current = Math.max(0, deadline.current - Date.now());
+      deadline.current = null;
+      setSecs(Math.ceil(remaining.current / 1000));
+      setRunning(false);
+      return;
     }
-    setRunning((r) => !r);
+
+    deadline.current = Date.now() + remaining.current;
+    setRunning(true);
+    if (globalThis.Notification?.permission === 'default') {
+      Notification.requestPermission().catch(() => {});
+    }
   };
 
   const reset = (e) => {
     e.stopPropagation();
-    clearInterval(intervalRef.current);
+    deadline.current = null;
+    remaining.current = WORK_MS;
     setRunning(false);
     setIsBreak(false);
-    setSecs(WORK_MINS * 60);
+    setSecs(WORK_MS / 1000);
   };
 
-  const pct = isBreak
-    ? 1 - secs / (BREAK_MINS * 60)
-    : 1 - secs / (WORK_MINS * 60);
+  const pct = 1 - secs * 1000 / (isBreak ? BREAK_MS : WORK_MS);
 
   const circumference = 2 * Math.PI * 16; // r=16
 
@@ -81,6 +91,7 @@ const PomodoroTimer = ({ taskId, taskTitle }) => {
       <button
         onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }}
         title="Pomodoro timer"
+        aria-expanded={open}
         className={`text-base p-1 rounded transition-colors ${
           running
             ? 'text-red-400 pomo-active'
@@ -134,6 +145,7 @@ const PomodoroTimer = ({ taskId, taskTitle }) => {
             </button>
             <button
               onClick={reset}
+              aria-label="Reset Pomodoro timer"
               className="text-sm px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors"
             >
               ↺
